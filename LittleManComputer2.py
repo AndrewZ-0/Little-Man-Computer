@@ -105,14 +105,17 @@ class LMC:
     def adjustSpeed(self, direction):
         adjusted_clockSpeed = self.clockSpeed + direction
 
-        if adjusted_clockSpeed > 5:
-            self.clockSpeed = 5
+        if adjusted_clockSpeed > 6:
+            self.clockSpeed = 6
         elif adjusted_clockSpeed < 1:
             self.clockSpeed = 1
         else:
             self.clockSpeed = adjusted_clockSpeed
 
-        self.insert_to_entry(self.speed_display, 0, "speed " + str(self.clockSpeed), True)
+        if self.clockSpeed == 6:
+            self.insert_to_entry(self.speed_display, 0, "¯\_(ツ)_/¯", True)
+        else:
+            self.insert_to_entry(self.speed_display, 0, "speed: " + str(self.clockSpeed), True)
 
     def check_for_int(self, instr):
             try:
@@ -654,11 +657,11 @@ class assembler:
             if len(self.listed_code) < len(self.listed_code_):
                 assembly_code.append(self.int_to_instr(i))
 
-            machine_code = [self.translate_instr(line) for line in assembly_code]
+            instr_code = [self.translate_instr(line) for line in assembly_code]
 
-            return padded_code, assembly_code, machine_code, False
+            return padded_code, assembly_code, instr_code, False
         except exceptionHandler:
-            return None, None, None, True
+            return [], [], [], True
 
 class FDE_cycle:
     def __init__(self, lmcMainSelf):
@@ -683,13 +686,15 @@ class FDE_cycle:
         if self.lmcMainSelf.clockSpeed == 1:
             return 5, 1
         elif self.lmcMainSelf.clockSpeed == 2:
-            return 1, 3
+            return 2, 3
         elif self.lmcMainSelf.clockSpeed == 3:
             return 1, 8
         elif self.lmcMainSelf.clockSpeed == 4:
             return 1, 15
-        else:
+        elif self.lmcMainSelf.clockSpeed == 5:
             return 1, 30
+        else:
+            return 0, 0
     
     def move_signal(self, widget, movement_data):
         movement_axis, start_pos, shift_amount, direction, destination = movement_data
@@ -698,6 +703,8 @@ class FDE_cycle:
             widget.place_forget()
             return False
         delay, speed_shiftAmount = self.get_speed()
+        if delay == 0 and speed_shiftAmount == 0:
+            return
         if direction == 1 and destination - start_pos - shift_amount - speed_shiftAmount < 0:
             if movement_axis == "x":
                 widget.place_configure(x = destination)
@@ -718,36 +725,37 @@ class FDE_cycle:
             self.move_signal(widget, (movement_axis, start_pos, shift_amount, direction, destination))
     
     def increment_pc(self, address):
-        movements_from_pc = [
-                ("y", 282, 0, 1, 418), 
-                ("x", 576, 0, -1, 425), 
-                ("y", 418, 0, 1, 475)
+        if self.lmcMainSelf.clockSpeed < 6:
+            movements_from_pc = [
+                    ("y", 282, 0, 1, 418), 
+                    ("x", 576, 0, -1, 425), 
+                    ("y", 418, 0, 1, 475)
+                ]
+            movements_to_pc = [
+                ("x", 425, 0, 1, 455), 
+                ("y", 475, 0, -1, 418), 
+                ("x", 455, 0, 1, 576),
+                ("y", 418, 0, -1, 282)
             ]
-        movements_to_pc = [
-            ("x", 425, 0, 1, 455), 
-            ("y", 475, 0, -1, 418), 
-            ("x", 455, 0, 1, 576),
-            ("y", 418, 0, -1, 282)
-        ]
 
-        for movement_data in movements_from_pc:
-            if self.move_signal(self.lmcMainSelf.pc_signal, movement_data) == False:
-                return 
+            for movement_data in movements_from_pc:
+                if self.move_signal(self.lmcMainSelf.pc_signal, movement_data) == False:
+                    return 
 
-        self.lmcMainSelf.pc_signal.configure(text = self.lmcMainSelf.int_to_instr(address + 1))
-        self.lmcMainSelf.aluOperation_label.configure(text = "+1")
-        self.lmcMainSelf.aluOperation_label.place(x = 460, y = 477, height = 20, width = 25)
-        if self.lmcMainSelf.reset_status == True:
-            self.lmcMainSelf.pc_signal.place_forget()
-            return
-        sleep(self.get_speed()[0] / 8)
-        self.lmcMainSelf.aluOperation_label.place_forget()
-
-        for movement_data in movements_to_pc:
-            if self.move_signal(self.lmcMainSelf.pc_signal, movement_data) == False:
+            self.lmcMainSelf.pc_signal.configure(text = self.lmcMainSelf.int_to_instr(address + 1))
+            self.lmcMainSelf.aluOperation_label.configure(text = "+1")
+            self.lmcMainSelf.aluOperation_label.place(x = 460, y = 477, height = 20, width = 25)
+            if self.lmcMainSelf.reset_status == True:
+                self.lmcMainSelf.pc_signal.place_forget()
                 return
+            sleep(self.get_speed()[0] / 8)
+            self.lmcMainSelf.aluOperation_label.place_forget()
+
+            for movement_data in movements_to_pc:
+                if self.move_signal(self.lmcMainSelf.pc_signal, movement_data) == False:
+                    return
         
-        self.lmcMainSelf.pc_signal.place_forget()
+            self.lmcMainSelf.pc_signal.place_forget()
         self.lmcMainSelf.pc_display.configure(state = NORMAL)
         self.lmcMainSelf.pc_display.delete(0, END)
         self.lmcMainSelf.pc_display.insert(0, self.lmcMainSelf.int_to_instr(self.lmcMainSelf.pc_count + 1))
@@ -755,33 +763,36 @@ class FDE_cycle:
         self.lmcMainSelf.pc_display.configure(state = "readonly")
     
     def fetch_from_ram(self, column, row, address):
-        movements_to_ram = [
-            ("y", 282, 0, 1, 475), 
-            ("x", 576, 0, 1, 626), 
-            ("y", 475, 0, -1, 40 * row + 68), 
-            ("x", 626, 0, 1, 45 * column + 690)
-        ]
-        movements_from_ram = [
-            ("x", 45 * column + 690, 0, -1, 626), 
-            ("y", 40 * row + 68, 0, 1, 475), 
-            ("x", 626, 0, -1, 576), 
-            ("y", 475, 0, -1, 360)
-        ]
+        if self.lmcMainSelf.clockSpeed < 6:
+            movements_to_ram = [
+                ("y", 282, 0, 1, 475), 
+                ("x", 576, 0, 1, 626), 
+                ("y", 475, 0, -1, 40 * row + 68), 
+                ("x", 626, 0, 1, 45 * column + 690)
+            ]
+            movements_from_ram = [
+                ("x", 45 * column + 690, 0, -1, 626), 
+                ("y", 40 * row + 68, 0, 1, 475), 
+                ("x", 626, 0, -1, 576), 
+                ("y", 475, 0, -1, 360)
+            ]
 
         self.lmcMainSelf.set_ram_access_type("Read")
 
-        for movement_data in movements_to_ram:
-            if self.move_signal(self.lmcMainSelf.ram_signal, movement_data) == False:
-                return
+        if self.lmcMainSelf.clockSpeed < 6:
+            for movement_data in movements_to_ram:
+                if self.move_signal(self.lmcMainSelf.ram_signal, movement_data) == False:
+                    return
 
-        self.lmcMainSelf.ram_signal.configure(text = self.lmcMainSelf.RAM[address][0])
+            self.lmcMainSelf.ram_signal.configure(text = self.lmcMainSelf.RAM[address][0])
         sleep(self.get_speed()[0] / 10)
 
-        for movement_data in movements_from_ram:
-            if self.move_signal(self.lmcMainSelf.ram_signal, movement_data) == False:
-                return
+        if self.lmcMainSelf.clockSpeed < 6:
+            for movement_data in movements_from_ram:
+                if self.move_signal(self.lmcMainSelf.ram_signal, movement_data) == False:
+                    return
         
-        self.lmcMainSelf.ram_signal.configure(text = self.lmcMainSelf.RAM[address][0])
+            self.lmcMainSelf.ram_signal.configure(text = self.lmcMainSelf.RAM[address][0])
         self.lmcMainSelf.ar_display.configure(state = NORMAL)
         self.lmcMainSelf.ar_display.delete(0, END)
         data = self.lmcMainSelf.RAM[address][0]
@@ -791,8 +802,9 @@ class FDE_cycle:
             self.lmcMainSelf.ar_display.insert(0, self.lmcMainSelf.RAM[address][0][1: ])
         self.lmcMainSelf.ar_display.configure(state = "readonly")
 
-        if self.move_signal(self.lmcMainSelf.ram_signal, ("y", 360, 0, -1, 321)) == False:
-            return
+        if self.lmcMainSelf.clockSpeed < 6:
+            if self.move_signal(self.lmcMainSelf.ram_signal, ("y", 360, 0, -1, 321)) == False:
+                return
 
         self.lmcMainSelf.ir_display.configure(state = NORMAL)
         self.lmcMainSelf.ir_display.delete(0, END)
@@ -802,79 +814,85 @@ class FDE_cycle:
             self.lmcMainSelf.ir_display.insert(0, self.lmcMainSelf.RAM[address][0][0])
         self.lmcMainSelf.ir_display.configure(state = "readonly")
         
-        self.lmcMainSelf.ram_signal.place_forget()
+        if self.lmcMainSelf.clockSpeed < 6:
+            self.lmcMainSelf.ram_signal.place_forget()
 
         self.lmcMainSelf.set_ram_access_type("None")
 
-        sleep(self.get_speed()[0] / 5)
+        if self.lmcMainSelf.clockSpeed < 6:
+            sleep(self.get_speed()[0] / 5)
     
     def get_data_from_acc(self):
         acc_signal_value = self.lmcMainSelf.acc_display.get()
-        self.lmcMainSelf.acc_signal.configure(text = acc_signal_value)
-        self.lmcMainSelf.acc_signal.place(x = 508, y = 418, width = 30, height = 25)
-        if self.move_signal(self.lmcMainSelf.acc_signal, ("x", 508, 0, -1, 425)) == False:
-            return
-        if self.move_signal(self.lmcMainSelf.acc_signal, ("y", 418, 0, 1, 475)) == False:
-            return
+        if self.lmcMainSelf.clockSpeed < 6:
+            self.lmcMainSelf.acc_signal.configure(text = acc_signal_value)
+            self.lmcMainSelf.acc_signal.place(x = 508, y = 418, width = 30, height = 25)
+            if self.move_signal(self.lmcMainSelf.acc_signal, ("x", 508, 0, -1, 425)) == False:
+                return
+            if self.move_signal(self.lmcMainSelf.acc_signal, ("y", 418, 0, 1, 475)) == False:
+                return
     
     def add_data_at_addr(self, address, negitive):
         address = int(address)
-        column = address % 10
-        row = address // 10
+        if self.lmcMainSelf.clockSpeed < 6:
+            column = address % 10
+            row = address // 10
 
-        movements_to_ram = [
-            ("y", 360, 0, 1, 475),
-            ("x", 576, 0, 1, 626), 
-            ("y", 475, 0, -1, 40 * row + 68), 
-            ("x", 626, 0, 1, 45 * column + 690)
-        ]
-        movements_from_ram = [
-            ("x", 45 * column + 690, 0, -1, 626), 
-            ("y", 40 * row + 68, 0, 1, 475), 
-            ("x", 626, 0, -1, 576), 
-            ("y", 475, 0, -1, 418)
-        ]
-        movements_to_alu = [
-            ("x", 576, 0, -1, 425), 
-            ("y", 418, 0, 1, 475),
-            ("x", 425, 0, 1, 456)
-        ]
+            movements_to_ram = [
+                ("y", 360, 0, 1, 475),
+                ("x", 576, 0, 1, 626), 
+                ("y", 475, 0, -1, 40 * row + 68), 
+                ("x", 626, 0, 1, 45 * column + 690)
+            ]
+            movements_from_ram = [
+                ("x", 45 * column + 690, 0, -1, 626), 
+                ("y", 40 * row + 68, 0, 1, 475), 
+                ("x", 626, 0, -1, 576), 
+                ("y", 475, 0, -1, 418)
+            ]
+            movements_to_alu = [
+                ("x", 576, 0, -1, 425), 
+                ("y", 418, 0, 1, 475),
+                ("x", 425, 0, 1, 456)
+            ]
 
         self.lmcMainSelf.set_ram_access_type("Read")
 
         cpu_signal_value = self.lmcMainSelf.ar_display.get()
-        self.lmcMainSelf.cpu_signal.configure(text = cpu_signal_value)
-        self.lmcMainSelf.cpu_signal.place(x = 576, y = 360, width = 30, height = 25)
+        if self.lmcMainSelf.clockSpeed < 6:
+            self.lmcMainSelf.cpu_signal.configure(text = cpu_signal_value)
+            self.lmcMainSelf.cpu_signal.place(x = 576, y = 360, width = 30, height = 25)
 
-        for movement_data in movements_to_ram:
-            if self.move_signal(self.lmcMainSelf.cpu_signal, movement_data) == False:
-                return
+            for movement_data in movements_to_ram:
+                if self.move_signal(self.lmcMainSelf.cpu_signal, movement_data) == False:
+                    return
         
-        self.lmcMainSelf.cpu_signal.configure(text = self.lmcMainSelf.RAM[address][0])
-        sleep(self.get_speed()[0] / 10)
+            self.lmcMainSelf.cpu_signal.configure(text = self.lmcMainSelf.RAM[address][0])
+            sleep(self.get_speed()[0] / 10)
 
-        for movement_data in movements_from_ram:
-            if self.move_signal(self.lmcMainSelf.cpu_signal, movement_data) == False:
-                return
+            for movement_data in movements_from_ram:
+                if self.move_signal(self.lmcMainSelf.cpu_signal, movement_data) == False:
+                    return
 
         self.lmcMainSelf.set_ram_access_type("None")
         
         acc_signal_thread = Thread(target = self.get_data_from_acc, daemon = False)
         acc_signal_thread.start()
 
-        for movement_data in movements_to_alu:
-            if self.move_signal(self.lmcMainSelf.cpu_signal, movement_data) == False:
-                return
+        if self.lmcMainSelf.clockSpeed < 6:
+            for movement_data in movements_to_alu:
+                if self.move_signal(self.lmcMainSelf.cpu_signal, movement_data) == False:
+                    return
 
-        if negitive == False:
-            self.lmcMainSelf.aluOperation_label.configure(text = "+")
-        else:
-            self.lmcMainSelf.aluOperation_label.configure(text = "-")
-        self.lmcMainSelf.aluOperation_label.place(x = 447, y = 501, height = 15, width = 15)
+            if negitive == False:
+                self.lmcMainSelf.aluOperation_label.configure(text = "+")
+            else:
+                self.lmcMainSelf.aluOperation_label.configure(text = "-")
+            self.lmcMainSelf.aluOperation_label.place(x = 447, y = 501, height = 15, width = 15)
         
-        sleep(self.get_speed()[0] / 10)
-        self.lmcMainSelf.acc_signal.place_forget()
-        self.lmcMainSelf.aluOperation_label.place_forget()
+            sleep(self.get_speed()[0] / 10)
+            self.lmcMainSelf.acc_signal.place_forget()
+            self.lmcMainSelf.aluOperation_label.place_forget()
 
         acc_value = self.lmcMainSelf.acc_display.get()
         cpu_signal_value = self.lmcMainSelf.RAM[address][0]
@@ -892,40 +910,45 @@ class FDE_cycle:
             if len(acc_value) <= 2:
                 acc_value = "0" + self.lmcMainSelf.nstr_to_instr(acc_value)
 
-        self.lmcMainSelf.cpu_signal.configure(text = acc_value)
+        if self.lmcMainSelf.clockSpeed < 6:
+            self.lmcMainSelf.cpu_signal.configure(text = acc_value)
 
-        if self.move_signal(self.lmcMainSelf.cpu_signal, ("y", 475, 0, -1, 418)) == False:
-            return
-        if self.move_signal(self.lmcMainSelf.cpu_signal, ("x", 456, 0, 1, 508)) == False:
-            return
+            if self.move_signal(self.lmcMainSelf.cpu_signal, ("y", 475, 0, -1, 418)) == False:
+                return
+            if self.move_signal(self.lmcMainSelf.cpu_signal, ("x", 456, 0, 1, 508)) == False:
+                return
 
-        self.lmcMainSelf.cpu_signal.place_forget()
+            self.lmcMainSelf.cpu_signal.place_forget()
 
         self.lmcMainSelf.insert_to_entry(self.lmcMainSelf.acc_display, 0, acc_value, True)
 
+        acc_signal_thread.join()
+
     def store_to_addr(self, address):
         address = int(address)
-        column = address % 10
-        row = address // 10
+        if self.lmcMainSelf.clockSpeed < 6:
+            column = address % 10
+            row = address // 10
         
-        movements_to_ram = [
-            ("x", 508, 0, 1, 576),
-            ("y", 360, 0, 1, 475),
-            ("x", 576, 0, 1, 626),
-            ("y", 475, 0, -1, 40 * row + 68), 
-            ("x", 626, 0, 1, 45 * column + 690)
-        ]
+            movements_to_ram = [
+                ("x", 508, 0, 1, 576),
+                ("y", 360, 0, 1, 475),
+                ("x", 576, 0, 1, 626),
+                ("y", 475, 0, -1, 40 * row + 68), 
+                ("x", 626, 0, 1, 45 * column + 690)
+            ]
 
         self.lmcMainSelf.set_ram_access_type("Write")
 
-        self.lmcMainSelf.cpu_signal.configure(text = self.lmcMainSelf.acc_display.get())
-        self.lmcMainSelf.cpu_signal.place(x = 508, y = 418, width = 30, height = 25)
-        
-        for movement_data in movements_to_ram:
-            if self.move_signal(self.lmcMainSelf.cpu_signal, movement_data) == False:
-                return
-        
-        self.lmcMainSelf.cpu_signal.place_forget()
+        if self.lmcMainSelf.clockSpeed < 6:
+            self.lmcMainSelf.cpu_signal.configure(text = self.lmcMainSelf.acc_display.get())
+            self.lmcMainSelf.cpu_signal.place(x = 508, y = 418, width = 30, height = 25)
+            
+            for movement_data in movements_to_ram:
+                if self.move_signal(self.lmcMainSelf.cpu_signal, movement_data) == False:
+                    return
+            
+            self.lmcMainSelf.cpu_signal.place_forget()
 
         memoryLocation = self.lmcMainSelf.RAM[address][1]
         memoryLocation.delete(0, END)
@@ -936,51 +959,54 @@ class FDE_cycle:
     
     def load_from_addr(self, address):
         address = int(address)
-        column = address % 10
-        row = address // 10
+        if self.lmcMainSelf.clockSpeed < 6:
+            column = address % 10
+            row = address // 10
 
-        movements_to_ram = [
-            ("y", 360, 0, 1, 475), 
-            ("x", 576, 0, 1, 626), 
-            ("y", 475, 0, -1, 40 * row + 68), 
-            ("x", 626, 0, 1, 45 * column + 690)
-        ]
-        movements_from_ram = [
-            ("x", 45 * column + 690, 0, -1, 626), 
-            ("y", 40 * row + 68, 0, 1, 475), 
-            ("x", 626, 0, -1, 576), 
-            ("y", 475, 0, -1, 418), 
-            ("x", 576, 0, -1, 508)
-        ]
+            movements_to_ram = [
+                ("y", 360, 0, 1, 475), 
+                ("x", 576, 0, 1, 626), 
+                ("y", 475, 0, -1, 40 * row + 68), 
+                ("x", 626, 0, 1, 45 * column + 690)
+            ]
+            movements_from_ram = [
+                ("x", 45 * column + 690, 0, -1, 626), 
+                ("y", 40 * row + 68, 0, 1, 475), 
+                ("x", 626, 0, -1, 576), 
+                ("y", 475, 0, -1, 418), 
+                ("x", 576, 0, -1, 508)
+            ]
 
         self.lmcMainSelf.set_ram_access_type("Read")
 
-        self.lmcMainSelf.cpu_signal.configure(text = self.lmcMainSelf.ar_display.get())
-        self.lmcMainSelf.cpu_signal.place(x = 576, y = 360, width = 30, height = 25)
-        
-        for movement_data in movements_to_ram:
-            if self.move_signal(self.lmcMainSelf.cpu_signal, movement_data) == False:
-                return
+        if self.lmcMainSelf.clockSpeed < 6:
+            self.lmcMainSelf.cpu_signal.configure(text = self.lmcMainSelf.ar_display.get())
+            self.lmcMainSelf.cpu_signal.place(x = 576, y = 360, width = 30, height = 25)
+            
+            for movement_data in movements_to_ram:
+                if self.move_signal(self.lmcMainSelf.cpu_signal, movement_data) == False:
+                    return
 
-        self.lmcMainSelf.cpu_signal.configure(text = self.lmcMainSelf.RAM[address][0])
-        sleep(self.get_speed()[0] / 10)
+            self.lmcMainSelf.cpu_signal.configure(text = self.lmcMainSelf.RAM[address][0])
+            sleep(self.get_speed()[0] / 10)
 
-        for movement_data in movements_from_ram:
-            if self.move_signal(self.lmcMainSelf.cpu_signal, movement_data) == False:
-                return
+            for movement_data in movements_from_ram:
+                if self.move_signal(self.lmcMainSelf.cpu_signal, movement_data) == False:
+                    return
 
-        self.lmcMainSelf.cpu_signal.place_forget()
+            self.lmcMainSelf.cpu_signal.place_forget()
 
         self.lmcMainSelf.insert_to_entry(self.lmcMainSelf.acc_display, 0, self.lmcMainSelf.RAM[address][0], True)
 
         self.lmcMainSelf.set_ram_access_type("None")
     
     def branch_to_addr(self, address):
-        self.lmcMainSelf.cpu_signal.configure(text = address)
-        self.lmcMainSelf.cpu_signal.place(x = 576, y = 360, width = 30, height = 25) 
-        if self.move_signal(self.lmcMainSelf.cpu_signal, ("y", 360, 0, -1, 282)) == False:
-            return
-        self.lmcMainSelf.cpu_signal.place_forget()
+        if self.lmcMainSelf.clockSpeed < 6:
+            self.lmcMainSelf.cpu_signal.configure(text = address)
+            self.lmcMainSelf.cpu_signal.place(x = 576, y = 360, width = 30, height = 25) 
+            if self.move_signal(self.lmcMainSelf.cpu_signal, ("y", 360, 0, -1, 282)) == False:
+                return
+            self.lmcMainSelf.cpu_signal.place_forget()
 
         self.lmcMainSelf.pc_display.configure(state = "normal")
         self.lmcMainSelf.pc_display.delete(0, END)
@@ -1011,13 +1037,14 @@ class FDE_cycle:
                 elif len(user_input) == 3:
                     user_input = "-0" + user_input[1: ]
 
-            self.lmcMainSelf.cpu_signal.configure(text = user_input)
-            self.lmcMainSelf.cpu_signal.place(x = 488, y = 607, width = 30, height = 25)
-            if self.move_signal(self.lmcMainSelf.cpu_signal, ("x", 488, 0, 1, 508)) == False:
-                return
-            if self.move_signal(self.lmcMainSelf.cpu_signal, ("y", 607, 0, -1, 418)) == False:
-                return
-            self.lmcMainSelf.cpu_signal.place_forget()
+            if self.lmcMainSelf.clockSpeed < 6:
+                self.lmcMainSelf.cpu_signal.configure(text = user_input)
+                self.lmcMainSelf.cpu_signal.place(x = 488, y = 607, width = 30, height = 25)
+                if self.move_signal(self.lmcMainSelf.cpu_signal, ("x", 488, 0, 1, 508)) == False:
+                    return
+                if self.move_signal(self.lmcMainSelf.cpu_signal, ("y", 607, 0, -1, 418)) == False:
+                    return
+                self.lmcMainSelf.cpu_signal.place_forget()
 
             self.lmcMainSelf.insert_to_entry(self.lmcMainSelf.acc_display, 0, user_input, True)
         except exceptionHandler:
@@ -1028,14 +1055,15 @@ class FDE_cycle:
                 self.input_data_to_acc()
 
     def output_data_from_acc(self, acc_value):
-        self.lmcMainSelf.cpu_signal.configure(text = acc_value)
-        self.lmcMainSelf.cpu_signal.place(x = 508, y = 418, width = 30, height = 25)
+        if self.lmcMainSelf.clockSpeed < 6:
+            self.lmcMainSelf.cpu_signal.configure(text = acc_value)
+            self.lmcMainSelf.cpu_signal.place(x = 508, y = 418, width = 30, height = 25)
 
-        if self.move_signal(self.lmcMainSelf.cpu_signal, ("y", 418, 0, -1, 87)) == False:
-            return
-        if self.move_signal(self.lmcMainSelf.cpu_signal, ("x", 508, 0, -1, 488)) == False:
-            return
-        self.lmcMainSelf.cpu_signal.place_forget()
+            if self.move_signal(self.lmcMainSelf.cpu_signal, ("y", 418, 0, -1, 87)) == False:
+                return
+            if self.move_signal(self.lmcMainSelf.cpu_signal, ("x", 508, 0, -1, 488)) == False:
+                return
+            self.lmcMainSelf.cpu_signal.place_forget()
 
         self.lmcMainSelf.insert_to_textbox(self.lmcMainSelf.output_display, END, str(int(acc_value)) + "\n", False)
 
@@ -1079,7 +1107,7 @@ class FDE_cycle:
                     self.output_data_from_acc(acc_value)
                 return False
         except exceptionHandler:
-            errorMessage = self.exception_handler.get_errorMessage()
+            errorMessage = self.lmcMainSelf.exception_handler.get_errorMessage()
             self.lmcMainSelf.procTerminal_print(errorMessage)
     
     def start(self):
@@ -1092,15 +1120,17 @@ class FDE_cycle:
             column = address % 10
             row = address // 10
 
-            self.lmcMainSelf.ram_signal.configure(text = self.lmcMainSelf.int_to_instr(address))
-            self.lmcMainSelf.ram_signal.place(x = 576, y = 282, width = 30, height = 25)
-            self.lmcMainSelf.pc_signal.configure(text = self.lmcMainSelf.int_to_instr(address))
-            self.lmcMainSelf.pc_signal.place(x = 576, y = 282, width = 30, height = 25)
+            if self.lmcMainSelf.clockSpeed < 6:
+                self.lmcMainSelf.ram_signal.configure(text = self.lmcMainSelf.int_to_instr(address))
+                self.lmcMainSelf.ram_signal.place(x = 576, y = 282, width = 30, height = 25)
+                self.lmcMainSelf.pc_signal.configure(text = self.lmcMainSelf.int_to_instr(address))
+                self.lmcMainSelf.pc_signal.place(x = 576, y = 282, width = 30, height = 25)
 
             pc_thread = Thread(target = self.increment_pc, args = (address, ), daemon = False)
             pc_thread.start()
 
             self.fetch_from_ram(column, row, address)
+            pc_thread.join()
             #-------------------------------------------------------------------------------------------------------------
 
             #decode and execute phase ------------------------------------------------------------------------------------
